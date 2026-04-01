@@ -1,0 +1,157 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  repository_dispatch:
+    types: [deploy-command]  # Triggered by the GitHub App /deploy slash command
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Job 1: Build & Test
+  # ──────────────────────────────────────────────
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      - name: Build & Test
+        run: mvn clean verify -B
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: target/surefire-reports/
+          retention-days: 7
+
+      # ✅ Discord notification on success (using LOCAL custom action)
+      - name: Discord - Build Passed
+        if: success()
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "✅ Build Passed"
+          description: "${{ github.event.head_commit.message || 'PR build' }}"
+          color: "3066993"
+          url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fields: |
+            [
+              {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
+              {"name": "Commit", "value": "`${{ github.sha }}`", "inline": true},
+              {"name": "Author", "value": "${{ github.actor }}", "inline": true}
+            ]
+
+      # ❌ Discord notification on failure
+      - name: Discord - Build Failed
+        if: failure()
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "❌ Build Failed"
+          description: "${{ github.event.head_commit.message || 'PR build' }}"
+          color: "15158332"
+          url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fields: |
+            [
+              {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
+              {"name": "Author", "value": "${{ github.actor }}", "inline": true}
+            ]
+
+  # ──────────────────────────────────────────────
+  # Job 2: Security Scan
+  # ──────────────────────────────────────────────
+  security-scan:
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy Vulnerability Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+      - name: Discord - Security Issues Found
+        if: failure()
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "🛡️ Security Vulnerabilities Found"
+          description: "Trivy scan detected CRITICAL/HIGH vulnerabilities"
+          color: "15158332"
+          url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fields: |
+            [
+              {"name": "Scanner", "value": "Trivy FS", "inline": true},
+              {"name": "Severity", "value": "CRITICAL, HIGH", "inline": true}
+            ]
+
+  # ──────────────────────────────────────────────
+  # Job 3: Deploy (main branch only or /deploy command)
+  # ──────────────────────────────────────────────
+  deploy:
+    needs: [build-test, security-scan]
+    if: github.ref == 'refs/heads/main' || github.event_type == 'repository_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Production
+        run: |
+          echo "🚀 Deploying to production..."
+          echo "   Commit: ${{ github.sha }}"
+          echo "   Triggered by: ${{ github.actor }}"
+          # Replace with your actual deploy commands, e.g.:
+          # az containerapp update --name my-app --resource-group rg-prod \
+          #   --image ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+      # 🚀 Discord notification on deploy success
+      - name: Discord - Deployed
+        if: success()
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "🚀 Production Deployment Complete"
+          description: "Successfully deployed to production"
+          color: "3066993"
+          url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fields: |
+            [
+              {"name": "Commit", "value": "`${{ github.sha }}`", "inline": false},
+              {"name": "Triggered By", "value": "${{ github.actor }}", "inline": true},
+              {"name": "Environment", "value": "production", "inline": true}
+            ]
+
+      # 💥 Discord notification on deploy failure
+      - name: Discord - Deploy Failed
+        if: failure()
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "💥 Deployment Failed"
+          description: "Production deployment failed — check logs"
+          color: "15158332"
+          url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fields: |
+            [
+              {"name": "Commit", "value": "`${{ github.sha }}`", "inline": false},
+              {"name": "Triggered By", "value": "${{ github.actor }}", "inline": true}
+            ]

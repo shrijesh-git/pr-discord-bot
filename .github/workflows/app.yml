@@ -1,0 +1,51 @@
+name: GitHub App (Actions-Hosted)
+
+# These events ARE your webhook subscriptions
+# No external server needed — this workflow IS the app
+on:
+  pull_request:
+    types: [opened, closed, reopened]
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    # Skip bot comments to avoid infinite loops
+    if: github.event.comment.user.type != 'Bot' || github.event_name != 'issue_comment'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run App Logic
+        uses: actions/github-script@v7
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        with:
+          script: |
+            const { handleEvent } = require('./app-logic.js');
+            const eventName = context.eventName;
+            const payload = context.payload;
+
+            console.log(`🤖 Event received: ${eventName}.${payload.action}`);
+            console.log(`   Repo: ${payload.repository.full_name}`);
+
+            try {
+              await handleEvent(eventName, payload, github);
+              console.log('✅ Event processed successfully');
+            } catch (error) {
+              console.error(`❌ Error processing event: ${error.message}`);
+              throw error;
+            }

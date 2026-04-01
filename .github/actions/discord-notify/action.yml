@@ -1,0 +1,49 @@
+name: "Discord Notify"
+description: "Send rich embed notifications to a Discord channel via webhook"
+author: "sathishbabudevops"
+
+branding:
+  icon: "message-circle"
+  color: "purple"
+
+inputs:
+  webhook-url:
+    description: "Discord webhook URL"
+    required: true
+  title:
+    description: "Embed title"
+    required: true
+  description:
+    description: "Embed description"
+    required: false
+    default: ""
+  color:
+    description: "Embed color (decimal). green=3066993, red=15158332, blue=3447003, orange=15105570"
+    required: false
+    default: "3447003"
+  fields:
+    description: 'JSON array of fields: [{"name":"key","value":"val","inline":true}]'
+    required: false
+    default: "[]"
+  footer:
+    description: "Footer text"
+    required: false
+    default: "GitHub Actions"
+  url:
+    description: "URL to link in the title"
+    required: false
+    default: ""
+  thumbnail-url:
+    description: "Thumbnail image URL"
+    required: false
+    default: ""
+
+outputs:
+  status:
+    description: "HTTP status code from Discord"
+  message-id:
+    description: "Discord message ID"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
